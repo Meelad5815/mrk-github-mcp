@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
+import { verifyPayload } from "../../../lib/oauth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +58,14 @@ function createServer() {
 export async function POST(request: Request) {
   const expected=process.env.MCP_API_KEY;
   if(!expected) return Response.json({error:"Server is not configured: MCP_API_KEY is missing."},{status:503});
-  if(request.headers.get("authorization")!=="Bearer "+expected) return Response.json({error:"Unauthorized"},{status:401});
+  const authorization = request.headers.get("authorization") || "";
+  let authorized = authorization === "Bearer " + expected;
+  if (!authorized && authorization.startsWith("Bearer ")) {
+    const payload = verifyPayload<{typ:string;login:string;scope:string;exp:number}>(authorization.slice(7));
+    const allowedLogin = (process.env.GITHUB_OAUTH_ALLOWED_LOGIN || "").toLowerCase();
+    authorized = Boolean(payload && payload.typ === "access" && payload.scope === "github" && payload.login?.toLowerCase() === allowedLogin && allowedLogin);
+  }
+  if (!authorized) return Response.json({error:"Unauthorized"},{status:401});
   const server=createServer();
   const transport=new WebStandardStreamableHTTPServerTransport({sessionIdGenerator:undefined});
   try { await server.connect(transport); return await transport.handleRequest(request); }
