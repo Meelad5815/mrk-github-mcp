@@ -25,18 +25,23 @@ export function verifyPayload<T extends Record<string, any>>(token: string): T |
     return value;
   } catch { return null; }
 }
-export function makeClientId(redirectUri: string) {
-  const encoded = b64(redirectUri);
+
+// Bind each dynamic client ID to the full set of redirect URIs it registered.
+export function makeClientId(redirectUris: string | string[]) {
+  const list = (Array.isArray(redirectUris) ? redirectUris : [redirectUris]).slice().sort();
+  const encoded = b64(JSON.stringify(list));
   return "mrk_" + encoded + "." + mac("client:" + encoded);
 }
 export function verifyClientId(clientId: string, redirectUri: string) {
   const match = /^mrk_([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(clientId);
   if (!match) return false;
-  const encoded = b64(redirectUri);
-  if (match[1] !== encoded) return false;
-  const expected = Buffer.from(mac("client:" + encoded));
+  const expected = Buffer.from(mac("client:" + match[1]));
   const actual = Buffer.from(match[2]);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false;
+  try {
+    const redirects = JSON.parse(unb64(match[1]));
+    return Array.isArray(redirects) && redirects.length > 0 && redirects.every((x) => typeof x === "string") && redirects.includes(redirectUri);
+  } catch { return false; }
 }
 export function validRedirect(uri: string) {
   try {
