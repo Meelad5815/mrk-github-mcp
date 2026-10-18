@@ -26,6 +26,16 @@ export function verifyPayload<T extends Record<string, any>>(token: string): T |
   } catch { return null; }
 }
 
+// Derive a stable per-client secret without storing client records in serverless memory.
+export function makeClientSecret(clientId: string) {
+  return mac("client-secret:" + clientId);
+}
+export function verifyClientSecret(clientId: string, clientSecret: string) {
+  const expected = Buffer.from(makeClientSecret(clientId));
+  const actual = Buffer.from(clientSecret);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
 // Bind each dynamic client ID to the full set of redirect URIs it registered.
 export function makeClientId(redirectUris: string | string[]) {
   const list = (Array.isArray(redirectUris) ? redirectUris : [redirectUris]).slice().sort();
