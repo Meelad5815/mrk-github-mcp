@@ -4,40 +4,42 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    return Response.json(
+      { error: "invalid_client_metadata", error_description: "Dynamic client registration requires Content-Type: application/json." },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  let body: any;
   try {
-    const contentType = request.headers.get("content-type") || "";
-    if (!contentType.toLowerCase().includes("application/json")) {
-      return Response.json(
-        { error: "invalid_client_metadata", error_description: "Dynamic client registration requires Content-Type: application/json." },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
-      );
-    }
+    body = await request.json();
+  } catch {
+    return Response.json(
+      { error: "invalid_client_metadata", error_description: "Send a valid JSON registration request." },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
+    );
+  }
 
-    const body = await request.json();
-    const redirects = body?.redirect_uris;
+  const redirects = body?.redirect_uris;
+  if (
+    !Array.isArray(redirects) ||
+    redirects.length < 1 ||
+    redirects.length > 10 ||
+    redirects.some((x: unknown) => typeof x !== "string" || !validRedirect(x)) ||
+    new Set(redirects).size !== redirects.length
+  ) {
+    return Response.json(
+      { error: "invalid_client_metadata", error_description: "Provide 1-10 unique HTTPS redirect_uris (HTTP is allowed only for localhost/127.0.0.1)." },
+      { status: 400, headers: { "Cache-Control": "no-store" } }
+    );
+  }
 
-    // Gemini Spark may register several production, test, and sandbox callback URIs.
-    if (
-      !Array.isArray(redirects) ||
-      redirects.length < 1 ||
-      redirects.length > 10 ||
-      redirects.some((x: unknown) => typeof x !== "string" || !validRedirect(x)) ||
-      new Set(redirects).size !== redirects.length
-    ) {
-      return Response.json(
-        {
-          error: "invalid_client_metadata",
-          error_description: "Provide 1-10 unique HTTPS redirect_uris (HTTP is allowed only for localhost/127.0.0.1)."
-        },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
-      );
-    }
-
+  try {
     const redirectUris = redirects as string[];
     const clientId = makeClientId(redirectUris);
     const clientSecret = makeClientSecret(clientId);
-
-    // Include RFC 7591 response fields used by stricter OAuth clients.
     return Response.json(
       {
         client_id: clientId,
@@ -54,10 +56,11 @@ export async function POST(request: Request) {
       },
       { status: 201, headers: { "Cache-Control": "no-store", Pragma: "no-cache" } }
     );
-  } catch {
+  } catch (error) {
+    console.error("OAuth dynamic client registration failed:", error instanceof Error ? error.message : "unknown error");
     return Response.json(
-      { error: "invalid_client_metadata", error_description: "Send a valid JSON registration request." },
-      { status: 400, headers: { "Cache-Control": "no-store" } }
+      { error: "server_error", error_description: "OAuth server configuration is incomplete. Check the OAuth signing secret in deployment environment variables." },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }
 }
