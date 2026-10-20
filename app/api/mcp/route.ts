@@ -65,7 +65,19 @@ export async function POST(request: Request) {
     const allowedLogin = (process.env.GITHUB_OAUTH_ALLOWED_LOGIN || "").toLowerCase();
     authorized = Boolean(payload && payload.typ === "access" && payload.scope === "github" && payload.login?.toLowerCase() === allowedLogin && allowedLogin);
   }
-  if (!authorized) return Response.json({error:"Unauthorized"},{status:401});
+  if (!authorized) {
+    const metadata = new URL("/.well-known/oauth-protected-resource", request.url).toString();
+    return Response.json(
+      { error: "Unauthorized" },
+      {
+        status: 401,
+        headers: {
+          "Cache-Control": "no-store",
+          "WWW-Authenticate": `Bearer resource_metadata="${metadata}"`
+        }
+      }
+    );
+  }
   const server=createServer();
   const transport=new WebStandardStreamableHTTPServerTransport({sessionIdGenerator:undefined});
   try { await server.connect(transport); return await transport.handleRequest(request); }
